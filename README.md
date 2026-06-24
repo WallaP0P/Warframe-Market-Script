@@ -1,2 +1,4 @@
 # Warframe-Market-Script
 ! THIS IS MADE WITH AI !
+
+YOU NEED TO INSTALL PYTHON, SELENIUM.
