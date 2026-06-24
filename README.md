@@ -1,7 +1,6 @@
 # Warframe-Market-Script
-! THIS IS MADE WITH AI !
+! FATTO INTERAMENTE CON AI !
 
-YOU NEED TO INSTALL PYTHON, SELENIUM.
+DEVI INSTALLARE PYTHON E SELENIUM.
 
-
-In the config.txt you need to put the JWT token(you can get it by pressing F12 in warframe.market->application->then cookies. 
+Nel file config.txt metti il token JWT(lo puoi prendere andando su warframe market premendo F12->application->cookies. 
