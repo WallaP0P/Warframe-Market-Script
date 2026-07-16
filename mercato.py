@@ -525,7 +525,6 @@ class WarframeMarketGUI:
         self.has_rank_by_slug = {}  # slug -> True se l'item accetta il campo rank
         self.item_name_to_slug = {}  # "Nome Leggibile" -> slug (popolato da sync)
         self._auto_refresh_job = None   # after() handle per il refresh automatico
- 
         self.syndicate_vars = {name: tk.BooleanVar(value=True) for name in SYNDICATE_MODS}
  
         self.build_ui()
@@ -562,11 +561,13 @@ class WarframeMarketGUI:
             command=self.start_connect_thread, bd=0, padx=14, pady=6,
         )
         self.btn_connect.pack(anchor="e")
- 
+        
+        
         self.status_label = tk.Label(
             self.root, text="Non connesso", fg="#ffffff", bg="#2c2f33", anchor="w"
         )
         self.status_label.pack(fill="x", padx=22)
+
  
         # --- Checkbox Syndicate ---
         syn_outer = tk.LabelFrame(
@@ -596,7 +597,7 @@ class WarframeMarketGUI:
             activebackground="#36393f", activeforeground="white", bd=0, padx=8, pady=3,
             command=lambda: [v.set(False) for v in self.syndicate_vars.values()],
         ).pack(side="left")
- 
+        
         # --- Impostazioni ---
         settings_frame = tk.LabelFrame(
             self.root, text=" Impostazioni ",
@@ -654,7 +655,7 @@ class WarframeMarketGUI:
         )
         self.entry_search.pack(side="left", padx=6, ipady=4, fill="x", expand=True)
  
-        # Prezzo manuale e bottone vendi
+        # Prezzo manuale e quantità
         tk.Label(srow1, text="Prezzo:", fg="#cccccc", bg="#2c2f33").pack(side="left")
         self.sell_price_var = tk.IntVar(value=15)
         vcmd2 = (self.root.register(lambda s: s.isdigit() or s == ""), "%P")
@@ -665,6 +666,15 @@ class WarframeMarketGUI:
         ).pack(side="left", padx=4, ipady=4)
         tk.Label(srow1, text="PL", fg="#cccccc", bg="#2c2f33").pack(side="left")
  
+        tk.Label(srow1, text="Quantità:", fg="#cccccc", bg="#2c2f33").pack(side="left")
+        self.sell_quantity_var = tk.IntVar(value=1)
+        vcmd3 = (self.root.register(lambda s: s.isdigit() or s == ""), "%P")
+        tk.Entry(
+            srow1, textvariable=self.sell_quantity_var, width=5,
+            bg="#23272a", fg="white", insertbackground="white", relief="flat",
+            justify="center", validate="key", validatecommand=vcmd3,
+        ).pack(side="left", padx=4, ipady=4)
+
         self.btn_sell_single = tk.Button(
             srow1, text="\U0001f4e4 Vendi",
             font=("Helvetica", 9, "bold"),
@@ -767,16 +777,7 @@ class WarframeMarketGUI:
         )
         self.btn_clear.pack(side="right", padx=(6, 0))
 
-        # Bottone Chiudi — chiude Chrome + app
-        self.btn_quit = tk.Button(
-            vis_frame, text="\U0001f6aa Chiudi",
-            font=("Helvetica", 9, "bold"),
-            bg="#23272a", fg="#cccccc",
-            activebackground="#111315", activeforeground="white",
-            command=self.on_close, bd=0, pady=8, padx=12,
-        )
-        self.btn_quit.pack(side="right")
- 
+            
     # =========================================================================
     # STOP
     # =========================================================================
@@ -829,12 +830,12 @@ class WarframeMarketGUI:
             state_on = "normal" if connected and not busy else "disabled"
             self.btn_connect.config(state="disabled" if busy else "normal")
             self.btn_start.config(state=state_on)
-            self.btn_varzia.config(state=state_on)
             self.btn_panic.config(state=state_on)
             self.btn_hide.config(state=state_on)
             self.btn_show.config(state=state_on)
             self.btn_stop.config(state="normal" if busy else "disabled")
             self.btn_sell_single.config(state=state_on)
+            self.btn_varzia.config(state=state_on)                                          # già aggiunto prima
         self.ui_call(update)
  
     def show_error(self, title, message):
@@ -1360,10 +1361,10 @@ class WarframeMarketGUI:
     #   order_id  (stringa, campo body OBBLIGATORIO su alcuni endpoint v2)
     #   platinum, quantity, rank, visible
     # =========================================================================
-    def _put_order(self, order_id, order_data, platinum=None, visible=None):
+    def _put_order(self, order_id, order_data, platinum=None, visible=None, quantity=None):
         """
         PATCH {visible} → solo cambio visibilità (payload minimo, no campi obbligatori).
-        PUT completo → aggiornamento prezzo (richiede tutti i campi).
+        PUT completo → aggiornamento prezzo/quantità (richiede tutti i campi).
         Payload PUT conforme alla v2: order_id, platinum, quantity, rank, visible.
         """
         if platinum is None:
@@ -1372,11 +1373,11 @@ class WarframeMarketGUI:
                 f"/order/{order_id}",
                 {"visible": visible if visible is not None else order_data.get("visible", True)},
             )
-        # Aggiornamento prezzo → PUT completo
+        # Aggiornamento prezzo/quantità → PUT completo
         payload = {
             "order_id": order_id,
             "platinum": int(platinum),
-            "quantity": order_data.get("quantity") or 1,
+            "quantity": quantity if quantity is not None else order_data.get("quantity") or 1,
             "rank":     order_data.get("rank") or 0,
             "visible":  visible if visible is not None else order_data.get("visible", True),
         }
@@ -1734,13 +1735,21 @@ class WarframeMarketGUI:
         if price <= 0:
             self.log("\u274c Il prezzo deve essere maggiore di 0.")
             return
+        try:
+            quantity = int(self.sell_quantity_var.get())
+        except Exception:
+            self.log("\u274c Quantit\u00e0 non valida.")
+            return
+        if quantity <= 0:
+            self.log("\u274c La quantit\u00e0 deve essere maggiore di 0.")
+            return
         self.set_busy(True)
         threading.Thread(
-            target=lambda: self._thread_sell_single(slug, price),
+            target=lambda: self._thread_sell_single(slug, price, quantity),
             daemon=True,
         ).start()
  
-    def _thread_sell_single(self, slug, price):
+    def _thread_sell_single(self, slug, price, quantity):
         item_id  = self.item_id_by_slug.get(slug)
         subtype  = self.subtype_by_slug.get(slug)
         has_rank = self.has_rank_by_slug.get(slug, False)
@@ -1754,7 +1763,7 @@ class WarframeMarketGUI:
                 "itemId":   item_id,
                 "type":     "sell",
                 "platinum": price,
-                "quantity": 1,
+                "quantity": quantity,
                 "visible":  True,
             }
             if has_rank:
@@ -1771,7 +1780,7 @@ class WarframeMarketGUI:
                     self.log(f"  ↩ {name}: rank auto-rilevato e aggiunto.")
                 else:
                     raise
-            self.log(f"\u2705 {name} messa in vendita a {price} PL.")
+            self.log(f"\u2705 {name} messa in vendita a {price} PL x{quantity}.")
             # Reset ricerca
             self.ui_call(self.entry_search.delete, 0, tk.END)
             self.ui_call(self.search_listbox.delete, 0, tk.END)
@@ -1784,7 +1793,7 @@ class WarframeMarketGUI:
             self.log(f"\u274c Errore inatteso: {exc}")
         finally:
             self.set_busy(False)
- 
+
     # =========================================================================
     # CHIUSURA — garantisce che Chrome venga sempre terminato
     # =========================================================================
